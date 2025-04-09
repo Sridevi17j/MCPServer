@@ -3,41 +3,53 @@ import express from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from "zod";
-import puppeteer from "puppeteer";
+import axios from "axios";
+import { JSDOM } from "jsdom";
+import { Readability } from "@mozilla/readability";
 
+// Create an MCP server
 const server = new McpServer({
-  name: "web-scraper-new",
+  name: "web-content-extractor",
   version: "1.0.0"
 });
 
+// 🛠️ Tool: extract-url using Readability + jsdom
 server.tool(
   "extract-url",
   { url: z.string().url() },
   async ({ url }) => {
-    console.log("🔍 Extracting full content from:", url);
+    console.log(`🔍 Extracting readable content from: ${url}`);
     try {
-      const browser = await puppeteer.launch({ headless: true });
-      const page = await browser.newPage();
-      await page.goto(url, { waitUntil: "networkidle2", timeout: 20000 });
-
-      const textContent = await page.evaluate(() => {
-        return document.body.innerText;
+      const response = await axios.get(url, {
+        timeout: 10000,
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; MCPContentBot/1.0)"
+        }
       });
 
-      await browser.close();
+      const dom = new JSDOM(response.data, { url });
+      const reader = new Readability(dom.window.document);
+      const article = reader.parse();
 
-      return {
-        content: [{ type: "text", text: textContent }]
-      };
+      if (article?.textContent) {
+        return {
+          content: [{ type: "text", text: article.textContent }]
+        };
+      } else {
+        return {
+          content: [{ type: "text", text: "⚠️ Could not extract readable content from the page." }]
+        };
+      }
     } catch (err: any) {
-      console.error("❌ Error scraping content:", err.message);
+      console.error("❌ Extraction failed:", err.message || err);
       return {
-        content: [{ type: "text", text: `Failed to extract content: ${err.message}` }]
+        content: [{ type: "text", text: `❌ Failed to extract content: ${err.message}` }]
       };
     }
   }
 );
 
+// Express + SSE setup
 const app = express();
 const transports: { [sessionId: string]: SSEServerTransport } = {};
 
@@ -45,7 +57,7 @@ app.get("/sse", async (req, res) => {
   const transport = new SSEServerTransport("/messages", res);
   transports[transport.sessionId] = transport;
 
-  console.log("📡 SSE session started:", transport.sessionId);
+  console.log("🔗 SSE session started:", transport.sessionId);
 
   res.on("close", () => {
     console.log("❌ SSE session closed:", transport.sessionId);
@@ -58,6 +70,7 @@ app.get("/sse", async (req, res) => {
 app.post("/messages", async (req, res) => {
   const sessionId = req.query.sessionId as string;
   const transport = transports[sessionId];
+
   if (transport) {
     await transport.handlePostMessage(req, res);
   } else {

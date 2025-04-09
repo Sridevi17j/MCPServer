@@ -5,6 +5,8 @@
     "moduleResolution": "NodeNext",
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "strict": true
-  }
+    "strict": true,
+    "outDir": "dist"          
+  },
+  "include": ["server.ts"]
 }

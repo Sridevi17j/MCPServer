@@ -67,6 +67,10 @@ app.get("/sse", async (req, res) => {
   await server.connect(transport);
 });
 
+app.get("/api/health", (req, res) => {
+  res.status(200).json({ status: "ok", message: "Server is running" });
+});
+
 app.post("/messages", async (req, res) => {
   const sessionId = req.query.sessionId as string;
   const transport = transports[sessionId];
